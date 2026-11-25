@@ -1,74 +1,91 @@
+English | [简体中文](README_ZH.md)
+
 # wan6gate
 
-一个小型自托管网关，通过路由器的公网 IPv6 地址暴露家庭服务。专为那些 IPv4 被困在运营商级 NAT（CGNAT）但 ISP 分配了真实公网 IPv6 前缀的家庭设计。
+A small self-hosted gateway that exposes your home services through your router's public IPv6 address. Built for homes where IPv4 is trapped behind carrier-grade NAT (CGNAT) but the ISP hands out a real public IPv6 prefix.
 
-这是一个单一的 Go 二进制文件，运行在路由器上，提供以下功能：
+It ships as a single Go binary that runs on the router and provides:
 
-- **TCP/UDP 端口转发** — `[路由器-ipv6]:N` → `<局域网-ip>:M`
-- **认证 SOCKS5 代理**（RFC 1928 + 1929）— 将你的路由器作为干净的出口节点
-- **IPv6 DDNS 到阿里云** — 你的域名跟随 PPPoE 拨号后分配的 WAN GUA 变化
-- **飞书 Webhook 通知** — 守护进程启动、DDNS 变更、DDNS 错误
-- **通用计划任务**（v0.3.0 新增）— Cron 定时执行 Shell 命令或 HTTP 请求，失败可告警到飞书
-- **内存中的指标 + 每小时持久化历史** — 最近 90 天，支持简单的 SVG 图表
-- **SOCKS5 暴力破解防护** — 5 分钟内 10 次失败 → IP 被封禁 30 分钟
-- **单页仅局域网 Web UI** — 无前端框架，设计上不启用 HTTPS
-- **一键导出客户端配置** — 支持 sing-box / Clash / Surge / 通用 URI
+- **TCP/UDP port forwarding** — `[router-ipv6]:N` → `<lan-ip>:M`
+- **Authenticated SOCKS5 proxy** (RFC 1928 + 1929) — turn your router into a clean exit node
+- **IPv6 DDNS for Aliyun DNS** — your domain follows the WAN GUA assigned after PPPoE dialing
+- **Feishu webhook notifications** — daemon start, DDNS changes, DDNS errors
+  (Currently supports Aliyun DNS and Feishu webhook notifications. PRs welcome for Cloudflare DNS, Telegram, Discord, etc.)
+- **Generic scheduled tasks** (new in v0.3.0) — run shell commands or HTTP requests on a cron schedule, with failure alerts to Feishu
+- **In-memory metrics + hourly persisted history** — kept for 90 days, with simple SVG charts
+- **SOCKS5 brute-force protection** — 10 failures within 5 minutes → the IP is banned for 30 minutes
+- **Single-page LAN-only web UI** — no frontend framework, and HTTPS is deliberately not enabled
+- **One-click client configuration export** — for sing-box / Clash / Surge / generic URI
 
-整个项目是为一类特定部署场景编写的：运行 MiWiFi 固件（基于 OpenWrt-18.06）的 aarch64 小米路由器。持久化依赖 uci + fw3 + busybox cron 模式，这些在 OpenWrt 分支中常见，但不能保证在其他固件上相同。移植时请谨慎；请参阅 [docs/architecture.md](docs/architecture.md) 了解需要替换的部分。
+The whole project is written for one specific deployment scenario: an aarch64 Xiaomi router running MiWiFi firmware (based on OpenWrt-18.06). Persistence relies on uci + fw3 + busybox cron, which are common on OpenWrt branches but are not guaranteed to behave the same on other firmware. Port with care; see [docs/architecture.md](docs/architecture.md) for what you need to replace.
 
-## 前置要求
+## Network Environment Pre-check
 
-wan6gate 需要通过 SSH 部署到路由器，因此必须先使用 **XMiR-Patcher** 解锁路由器 SSH 权限：
+Before deploying, confirm that your broadband satisfies two prerequisites — otherwise the core value of wan6gate (a public IPv6 exit) is not realized:
 
-> **XMiR-Patcher** — 小米路由器固件补丁工具
-> 仓库：https://github.com/openwrt-xiaomi/xmir-patcher
+1. **Check whether your broadband sits behind CGNAT.**
+   Visit <https://ip-address.site> and look at your current exit IP. If it falls in `100.64.0.0/10`, `10.0.0.0/8`, `172.16.0.0/12`, or `192.168.0.0/16`, your IPv4 is shared with other subscribers and cannot be reached directly from the public Internet via port forwarding — this is exactly the problem wan6gate solves: use a public IPv6 address to bypass CGNAT.
+   To understand the mechanism and its impact, read <https://ip-address.site/guides/what-is-cgnat-and-why-it-matters>.
 
-使用步骤：
-1. 下载 XMiR-Patcher
-2. 运行 `run.bat`（Windows）或 `run.sh`（Linux/macOS）
-3. 选择对应路由器型号，开启 SSH 访问
+2. **Check that you have a genuine public IPv6 prefix (GUA).**
+   On the same <https://ip-address.site> page, your IPv6 address should be a global unicast address starting with `2xxx:` — not `fe80::` (link-local) and not an address in `fd00::/8` (ULA private range).
+   If no public IPv6 shows up, contact your ISP to enable IPv6 and make sure the router's WAN interface has been assigned an IPv6 prefix.
 
-**重要**：开启 SSH 后才能进行后续的构建和部署操作。
+> 💡 Tip: The same page reports both your IPv4 and your IPv6 exit addresses, so a single visit covers both checks.
 
-## 快速开始
+## Prerequisites
+
+wan6gate is deployed to the router over SSH, so you must first unlock SSH access using **XMiR-Patcher**:
+
+> **XMiR-Patcher** — a firmware patcher for Xiaomi routers
+> Repository: https://github.com/openwrt-xiaomi/xmir-patcher
+
+Steps:
+1. Download XMiR-Patcher
+2. Run `run.bat` (Windows) or `run.sh` (Linux/macOS)
+3. Select your router model and enable SSH access
+
+**Important**: SSH must be enabled before you can build and deploy.
+
+## Quick Start
 
 ```bash
-# 1. 交叉编译 aarch64 Linux 二进制文件
-./scripts/build.sh                 # → build/wan6gate（约 7 MB，静态链接）
+# 1. Cross-compile the aarch64 Linux binary
+./scripts/build.sh                 # → build/wan6gate (~7 MB, statically linked)
 
-# 2. 推送并安装到路由器（需要环境变量）
-export ROUTER_HOST=<路由器局域网 IP>          # 例如 192.168.31.1
+# 2. Push and install it to the router (environment variables required)
+export ROUTER_HOST=<router-lan-ip>          # e.g. 192.168.31.1
 export ROUTER_PASS='your-router-root-password'
 ./scripts/deploy.sh
 
-# 3. 打开 http://<路由器局域网 IP>:18080 设置管理员密码并添加映射规则
+# 3. Open http://<router-lan-ip>:18080 to set the admin password and add mapping rules
 ```
 
-## 构建前提条件（构建主机）
+## Build Prerequisites (build host)
 
-- Go ≥ 1.22（开发环境使用 1.26）
-- `expect` 用于密码模式 SSH 辅助脚本（macOS 自带；Linux：`apt install expect` 等）
+- Go ≥ 1.22 (development environment uses 1.26)
+- `expect` for the password-mode SSH helper scripts (bundled with macOS; on Linux: `apt install expect`, etc.)
 
-无 CGO，无 `node_modules`，无前端工具链 — UI 是手写的 HTML / CSS / JS，通过 `//go:embed` 嵌入二进制文件。
+No CGO, no `node_modules`, no frontend toolchain — the UI is hand-written HTML / CSS / JS embedded into the binary via `//go:embed`.
 
-## 目标平台前提条件（路由器）
+## Target Platform Prerequisites (router)
 
-- aarch64 / arm64 Linux（典型小米路由器型号如 BE7000、AX9000 均为 aarch64 ARMv8）
-- Dropbear SSH（固件默认；构建辅助脚本处理仅 ssh-rsa 的主机密钥）
-- BusyBox `crond` 读取 `/etc/crontabs/`
-- `uci` + `fw3`（防火墙配置工具 — 用于持久化端口规则）
-- 可写的 `/data/` 分区（二进制文件 + 配置 + 日志存放位置）
-- BusyBox `flock`（看门狗使用）
+- aarch64 / arm64 Linux (typical Xiaomi router models such as BE7000 and AX9000 are aarch64 ARMv8)
+- Dropbear SSH (firmware default; the build helper scripts cope with legacy `ssh-rsa`-only host keys)
+- BusyBox `crond` reading `/etc/crontabs/`
+- `uci` + `fw3` (firewall configuration tooling — used to persist port rules)
+- A writable `/data/` partition (binary + configuration + logs)
+- BusyBox `flock` (used by the watchdog)
 
-二进制文件零外部运行时依赖；它调用 `/sbin/uci` 和 `/etc/init.d/firewall reload` 来执行防火墙更改。
+The binary has zero external runtime dependencies; it shells out to `/sbin/uci` and `/etc/init.d/firewall reload` to apply firewall changes.
 
-## 构建
+## Build
 
 ```bash
 ./scripts/build.sh
 ```
 
-等同于：
+Equivalent to:
 
 ```bash
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
@@ -76,60 +93,60 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
   -o build/wan6gate ./cmd/wan6gate
 ```
 
-## 部署
+## Deploy
 
 ```bash
-export ROUTER_HOST=<路由器局域网 IP>        # 你的路由器局域网 IP，例如 192.168.31.1
-export ROUTER_PASS='your-root-password'    # 切勿提交此文件
-./scripts/deploy.sh                        # 构建 + scp + 安装
-./scripts/deploy.sh --no-build             # 跳过重新构建
-./scripts/deploy.sh --no-install           # 仅推送二进制文件
+export ROUTER_HOST=<router-lan-ip>        # your router's LAN IP, e.g. 192.168.31.1
+export ROUTER_PASS='your-root-password'    # never commit this
+./scripts/deploy.sh                        # build + scp + install
+./scripts/deploy.sh --no-build             # skip the rebuild
+./scripts/deploy.sh --no-install           # push the binary only
 ```
 
-`deploy.sh` 幕后操作：
+What `deploy.sh` does behind the scenes:
 
-1. 交叉编译（除非指定 `--no-build`）。
-2. 通过 `scripts/_ssh-helper.exp` 封装脚本将二进制文件 `scp` 到 `/data/router-ops/bin/wan6gate`（解决 dropbear 算法集过旧的问题）。
-3. 停止任何正在运行的 `wan6gate daemon`。
-4. 在路由器上运行 `wan6gate install`，设置：
-   - `/data/router-ops/{bin,wan6gate/logs}` 目录
-   - `/etc/crontabs/patches/wan6gate_watchdog.sh`（在任何崩溃或启动后 ≤ 60 秒内重新启动守护进程）
-   - 看门狗每分钟执行的 cron 行
-   - 一个 fw3 `wan6gate_ui_lockdown_18080` 规则，显式 DROP 到达 UI 端口的 WAN 流量
-5. 重启 cron。
+1. Cross-compiles (unless `--no-build` is given).
+2. `scp`s the binary to `/data/router-ops/bin/wan6gate` via the `scripts/_ssh-helper.exp` wrapper script (this works around Dropbear's outdated algorithm set).
+3. Stops any running `wan6gate daemon`.
+4. Runs `wan6gate install` on the router, setting up:
+   - the `/data/router-ops/{bin,wan6gate/logs}` directories
+   - `/etc/crontabs/patches/wan6gate_watchdog.sh` (restarts the daemon within ≤ 60 seconds after any crash or startup)
+   - the cron line that runs the watchdog every minute
+   - a fw3 rule named `wan6gate_ui_lockdown_18080` that explicitly DROPs WAN traffic to the UI port
+5. Restarts cron.
 
-## 路由器上的运行时布局
+## Runtime Layout on the Router
 
 ```
 /data/router-ops/
-├── bin/wan6gate                       二进制文件（ubifs，持久化）
+├── bin/wan6gate                       binary (ubifs, persistent)
 └── wan6gate/
-    ├── config.json                    模式 0600；映射 + socks5 + ddns + 通知配置
-    ├── config.json.v3.bak             自动迁移备份，首次启动时保留
-    ├── wan6gate.lock                  单例 flock 文件
-    ├── wan6gate.pid                   当前守护进程 PID
-    ├── logs/wan6gate.log              大小轮转 1 MB × 3
-    └── metrics/YYYY-MM.jsonl          每小时快照，保留 90 天
+    ├── config.json                    mode 0600; mappings + socks5 + ddns + notification config
+    ├── config.json.v3.bak             automatic migration backup, kept from first boot
+    ├── wan6gate.lock                  singleton flock file
+    ├── wan6gate.pid                   PID of the running daemon
+    ├── logs/wan6gate.log              size-rotated 1 MB × 3
+    └── metrics/YYYY-MM.jsonl          hourly snapshots, retained for 90 days
 
 /etc/crontabs/patches/wan6gate_watchdog.sh
-/etc/config/firewall                   uci 段落 wan6gate_<端口>_<协议> + wan6gate_ui_lockdown_*
+/etc/config/firewall                   uci sections wan6gate_<port>_<proto> + wan6gate_ui_lockdown_*
 ```
 
-`/data` 是 ubifs（重启后持久化）。`/etc` 是 ramfs，但 `/etc/config/` 和 `/etc/crontabs/` 通过本固件绑定挂载到持久化存储，这就是设计能够在不触碰 squashfs rootfs 的情况下工作的原因。
+`/data` is ubifs (survives reboots). `/etc` is ramfs, but `/etc/config/` and `/etc/crontabs/` are bind-mounted onto persistent storage by this firmware — that is why the design works without ever touching the squashfs rootfs.
 
-## 子命令
+## Subcommands
 
 ```
-wan6gate daemon                 前台运行；由 cron 看门狗调用
-wan6gate install                幂等设置
-wan6gate uninstall              清理移除（默认保留配置）
-wan6gate uninstall --purge      同时删除配置和二进制文件
+wan6gate daemon                 run in the foreground; invoked by the cron watchdog
+wan6gate install                idempotent setup
+wan6gate uninstall              clean removal (keeps the config by default)
+wan6gate uninstall --purge      also removes the config and the binary
 wan6gate version
 ```
 
-`daemon` 接受 `--config <路径>` 和 `--bind 主机:端口` 参数覆盖，用于在非路由器主机上进行本地测试。
+`daemon` accepts `--config <path>` and `--bind host:port` overrides, which makes local testing on a non-router host possible.
 
-## 本地测试（无路由器）
+## Local Testing (no router required)
 
 ```bash
 go build -o build/wan6gate-mac ./cmd/wan6gate
@@ -137,50 +154,65 @@ WAN6GATE_DIR=/tmp/wan6gate-test \
   ./build/wan6gate-mac daemon --bind 127.0.0.1:18080
 ```
 
-打开 `http://127.0.0.1:18080`。当缺少这些二进制文件时，防火墙调用（`uci`、`firewall reload`）会警告并继续，因此 UI / 转发器 / SOCKS5 仍然可以端到端工作（针对模拟的局域网目标）。
+Open `http://127.0.0.1:18080`. When those binaries are missing, firewall calls (`uci`, `firewall reload`) warn and continue, so the UI / forwarder / SOCKS5 still work end to end (against simulated LAN targets).
 
-## 依赖
+## Verify the SOCKS5 Exit IP
+
+Once the SOCKS5 proxy is configured and you have exported a client configuration, you can verify that the exit IP has actually switched to your home router's public IPv6:
+
+- **Via the browser**: point your browser at the exported client configuration so it routes through the SOCKS5 proxy, then visit <https://ip-address.site>. The IPv6 address shown there should be your router's WAN-side public IPv6.
+- **Via the command line**:
+
+  ```bash
+  curl -x socks5h://<user>:<pass>@<router-ipv6>:<port> https://ip-address.site
+  ```
+
+  where `<router-ipv6>` is the router's public IPv6 address, `<port>` is the SOCKS5 listening port, and `<user>` / `<pass>` are the credentials you set in the UI.
+
+If the result still shows your ISP's shared exit IP rather than your router's IPv6, check that: the router's WAN interface really obtained a GUA prefix, the DDNS record has been updated to the newest address, and the SOCKS5 listener is bound to the correct address.
+
+## Dependencies
 
 ```
-golang.org/x/crypto/bcrypt    UI 管理员密码哈希
+golang.org/x/crypto/bcrypt    UI admin password hashing
 ```
 
-其他一切（HTTP 服务器、JSON、阿里云 DNS RPC 签名、SOCKS5 协议、原子指标、SVG 图表渲染）都是标准库 + 手写的。
+Everything else (HTTP server, JSON, Aliyun DNS RPC signing, SOCKS5 protocol, atomic metrics, SVG chart rendering) is the standard library plus hand-written code.
 
-## 不在范围内的事项
+## Out of Scope
 
-- UI 的 HTTPS（设计上仅限 LAN）
-- 多用户 SOCKS5（每个监听器一个凭据；如有需要可打开更多监听器）
-- IPv4 DDNS（假设是 CGNAT IPv4）
-- SOCKS5 UDP ASSOCIATE（TCP CONNECT 覆盖所述用例）
-- 不支持没有 uci+fw3+busybox-cron 的路由器（必须移植）
+- HTTPS for the UI (LAN-only by design)
+- Multi-user SOCKS5 (one credential per listener; open more listeners if you need more)
+- IPv4 DDNS (IPv4 is assumed to be behind CGNAT)
+- SOCKS5 UDP ASSOCIATE (TCP CONNECT covers the described use cases)
+- Routers without uci + fw3 + busybox-cron (port required)
 
-## 安全建议
+## Security Best Practices
 
-- **切勿将 Web UI 端口（默认 `18080`）直接映射到公网。** 该端口设计上只提供 HTTP 明文访问，没有 HTTPS、没有额外认证层，一旦暴露即等同于把路由器管理面开放给整个互联网。`wan6gate install` 会写入 `fw3` 的 `wan6gate_ui_lockdown_18080` 规则丢弃 WAN 口发往该端口的流量，请保持该规则生效。
-- **远程管理请走加密通道。** 推荐从内网直连；确需外出时，通过 SSH 本地端口转发（`ssh -L 18080:<路由器 LAN IP>:18080 root@<路由器>`）或先接入本项目提供的认证 SOCKS5 代理、再由其访问局域网内的 Web UI。
-- **不要把管理凭据与 SOCKS5 密码写进仓库。** 部署脚本通过 `ROUTER_HOST` / `ROUTER_PASS` 环境变量读取密码，`.gitignore` 已排除 `.env`、`*.pem`、`*.key` 等本地密钥文件。
-- **SOCKS5 监听器同样应视为公网暴露面。** 本项目已内置暴力破解防护（5 分钟内 10 次失败 → 封禁 30 分钟），但仍建议配合防火墙限制来源地址，并使用高强度随机密码。
-- **升级前先备份 `/data`**。路由器 `/data` 分区通常只有几十 MB，新旧二进制同时存在可能写满；`scripts/deploy.sh` 采用先删后移的原子切换以规避该问题。
+- **Never map the web UI port (default `18080`) directly to the public Internet.** That port serves plain HTTP by design — no HTTPS, no extra authentication layer — so exposing it is effectively opening your router's management plane to the whole Internet. `wan6gate install` writes an fw3 rule named `wan6gate_ui_lockdown_18080` that drops WAN traffic destined for that port; keep that rule in place.
+- **Use an encrypted channel for remote management.** Connect from the LAN directly where possible; if you must go outside, use SSH local port forwarding (`ssh -L 18080:<router-lan-ip>:18080 root@<router>`), or first hop through this project's authenticated SOCKS5 proxy and reach the LAN web UI through it.
+- **Keep management credentials and SOCKS5 passwords out of the repository.** The deploy scripts read the password from the `ROUTER_HOST` / `ROUTER_PASS` environment variables, and `.gitignore` already excludes local key files such as `.env`, `*.pem`, and `*.key`.
+- **Treat the SOCKS5 listener as a public-facing exposure as well.** Brute-force protection is built in (10 failures within 5 minutes → 30-minute ban), but you should still restrict source addresses via the firewall and use a long random password.
+- **Back up `/data` before upgrading.** A router's `/data` partition is usually only a few dozen MB, and having the old and new binaries present at the same time can fill it up; `scripts/deploy.sh` uses a delete-then-move atomic swap to avoid that problem.
 
-## 常见陷阱
+## Common Gotchas
 
-- 小米路由器固件上的 Dropbear 通常仅宣传 `ssh-rsa` 主机密钥；现代 OpenSSH 默认不连接。辅助脚本传递 `HostKeyAlgorithms=+ssh-rsa` 等参数。
-- BusyBox `crond` 不支持 `@reboot`；我们使用 `*/1 * * * *` 加上 flock 保护的看门狗。不要尝试使用 `@reboot`。
-- `/etc/init.d/dropbear` 每次启动时从 squashfs 重新创建；小米内置的 `ssh_patch.sh` 每次启动时重启 dropbear，这会拾取我们的 `/etc/config/dropbear` `Interface=lan` 设置（仅局域网监听）。
-- LAN 网段更改后，新安装默认使用 `0.0.0.0:18080` 作为 UI 绑定地址；现有配置保留其原来的 IP。如需精确 IP 可通过 UI 编辑。
+- Dropbear on Xiaomi firmware usually advertises only `ssh-rsa` host keys, which modern OpenSSH refuses to connect to. The helper scripts pass options such as `HostKeyAlgorithms=+ssh-rsa`.
+- BusyBox `crond` does not support `@reboot`; we use `*/1 * * * *` plus a flock-protected watchdog instead. Do not try to use `@reboot`.
+- `/etc/init.d/dropbear` is recreated from squashfs on every boot; Xiaomi's built-in `ssh_patch.sh` restarts dropbear on each boot, which picks up our `/etc/config/dropbear` `Interface=lan` setting (LAN-only listening).
+- After the LAN subnet changes, a fresh install binds the UI to `0.0.0.0:18080` by default; existing configurations keep their original IP. Edit it in the UI if you need a specific address.
 
-## 状态
+## Status
 
-已在单个家庭生产环境测试。跨重启、PPPoE 重新拨号和 LAN 网段重新编号均稳定运行。详见 [CHANGELOG.md](CHANGELOG.md) 了解各版本范围；[docs/architecture.md](docs/architecture.md) 了解当前设计。
+Tested in a single home production environment. Stable across reboots, PPPoE re-dials, and LAN renumbering. See [CHANGELOG.md](CHANGELOG.md) for the scope of each release and [docs/architecture.md](docs/architecture.md) for the current design.
 
-## 开源边界与免责声明
+## Open-Source Scope and Disclaimer
 
-- 本项目以 **MIT 协议按现状提供**（as-is），不含任何担保；作者不对使用本项目造成的设备损坏、数据丢失或安全后果承担责任。
-- 本项目**仅在特定小米（MiWiFi / 基于 OpenWrt-18.06 的 `aarch64`）固件上验证过**。其他品牌路由器的固件在 `uci` / `fw3` / BusyBox `crond` 的行为与路径上差异很大。
-- **不承诺全品牌路由器兼容性，也不提供刷机（刷写固件）支持。** 本项目不包含、也不会引导你执行任何固件刷写操作；因自行刷机导致的变砖风险完全由使用者自行承担。
-- 移植到其他固件时需要自行替换持久化层（`uci` + `fw3` + cron 看门狗），具体接口参见 [docs/architecture.md](docs/architecture.md)。
+- This project is provided **as-is under the MIT license**, with no warranties of any kind; the author accepts no responsibility for device damage, data loss, or security consequences arising from its use.
+- The project has **only been validated on specific Xiaomi (MiWiFi / OpenWrt-18.06-based `aarch64`) firmware**. Other brands differ widely in the behavior and paths of `uci` / `fw3` / BusyBox `crond`.
+- **No cross-brand router compatibility is promised, and firmware flashing (reflashing) is not supported.** This project neither contains nor guides you through any firmware-flashing procedure; the risk of bricking your device through self-flashing is entirely yours to bear.
+- Porting to other firmware means replacing the persistence layer (`uci` + `fw3` + cron watchdog) yourself — see [docs/architecture.md](docs/architecture.md) for the relevant interfaces.
 
-## 许可证
+## License
 
-MIT — 详见 [LICENSE](LICENSE)。
+MIT — see [LICENSE](LICENSE).
