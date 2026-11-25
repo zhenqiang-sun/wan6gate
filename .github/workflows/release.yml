@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so scripts/build.sh can derive the version
+          # number from `git describe --tags --match 'v[0-9]*'`.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race)
+        run: go test -race ./...
+
+      - name: Build linux/arm64 static binary
+        run: |
+          ./scripts/build.sh
+          mkdir -p dist
+          cp build/wan6gate dist/wan6gate-linux-arm64
+          chmod +x dist/wan6gate-linux-arm64
+
+      - name: Generate sha256sum
+        run: |
+          cd dist
+          sha256sum wan6gate-linux-arm64 > wan6gate-linux-arm64.sha256
+          cat wan6gate-linux-arm64.sha256
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/wan6gate-linux-arm64
+            dist/wan6gate-linux-arm64.sha256
+          generate_release_notes: true
+          fail_on_unmatched_files: true

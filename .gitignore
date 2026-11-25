@@ -1,0 +1,27 @@
+# Build artifacts
+build/
+
+# Local secrets — never commit
+.env
+.env.local
+*-secret.*
+*.pem
+*.key
+
+# Logs and scratch
+*.log
+*.bak
+*.tmp
+*.out
+*.pid
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,51 @@
+#!/usr/bin/env expect
+# Pipe stdin (one shell command per line; no multi-line constructs) to an
+# interactive remote shell on the router via SSH (dropbear) and stream the
+# output back. For multi-step logic, chain with ; or && in a single line.
+#
+# Required env vars:
+#   ROUTER_HOST   e.g. "192.168.31.1"
+#   ROUTER_PASS   the router root password
+#
+# Why expect at all? The dropbear build on this firmware only offers ssh-rsa
+# host keys + needs HMAC/KEX downgrades; sshpass isn't on macOS by default.
+set timeout 60
+
+if {![info exists env(ROUTER_HOST)]} {
+    puts stderr "ROUTER_HOST env var is required"
+    exit 2
+}
+if {![info exists env(ROUTER_PASS)]} {
+    puts stderr "ROUTER_PASS env var is required (do not commit this value)"
+    exit 2
+}
+set host $env(ROUTER_HOST)
+set pass $env(ROUTER_PASS)
+set user "root"
+
+set lines {}
+while {[gets stdin line] >= 0} {
+    if {$line ne ""} { lappend lines $line }
+}
+
+log_user 1
+spawn ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+    -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+    -o KexAlgorithms=+diffie-hellman-group14-sha1,curve25519-sha256@libssh.org \
+    -o MACs=+hmac-sha1,hmac-sha2-256 \
+    $user@$host
+expect {
+    -re "(P|p)assword:" { send "$pass\r" }
+    timeout { puts "TIMEOUT_PW"; exit 1 }
+}
+expect -re "(#|\\$) $"
+
+foreach c $lines {
+    send -- "$c\r"
+    expect {
+        -re "(#|\\$) $" { }
+        timeout { puts "\nCMD_TIMEOUT: $c"; break }
+    }
+}
+send "exit\r"
+expect eof

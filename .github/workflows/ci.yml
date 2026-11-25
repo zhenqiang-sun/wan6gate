@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt check
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+          echo "gofmt: all files formatted"
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race)
+        run: go test -race ./...
+
+      - name: Cross-compile (linux/arm64)
+        run: ./scripts/build.sh
+
+      - name: Verify cross-compiled binary
+        run: |
+          test -x build/wan6gate
+          file build/wan6gate
+          sha256sum build/wan6gate

@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wan6gate</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>wan6gate <span class="ver" id="version"></span></h1>
+    <div class="status-pill" id="status-pill" title="—">
+      <span class="dot"></span>
+      <span class="status-text" id="status-text">连接中…</span>
+    </div>
+    <div class="user">
+      <span id="username">—</span>
+      <button id="btn-settings" title="设置">⚙</button>
+      <button id="btn-logout">退出</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="alert-bar" class="alert-bar hidden" role="alert">
+      <span class="alert-icon">⚠</span>
+      <span class="alert-text" id="alert-text"></span>
+      <button class="alert-close" id="alert-close" title="关闭">×</button>
+    </div>
+
+    <section id="overview-section">
+      <div class="section-head">
+        <div class="section-head-left">
+          <h2>概览</h2>
+          <span class="totals-line" id="overview-totals">—</span>
+        </div>
+        <div class="head-actions">
+          <span class="auto-refresh" id="auto-refresh" title="每 5 秒自动刷新">
+            <span class="pulse-dot"></span>
+            <span class="auto-refresh-text">5s</span>
+          </span>
+          <button id="btn-overview-refresh" class="secondary">刷新</button>
+        </div>
+      </div>
+      <div class="overview-grid">
+        <div class="ov-group">
+          <h3>网络</h3>
+          <div class="kv">
+            <div><span class="k">WAN IPv6</span><code id="ov-wan-ipv6" class="v">—</code></div>
+            <div><span class="k">UI 绑定</span><code id="ov-ui-bind" class="v">—</code></div>
+            <div><span class="k">DDNS 域名</span><code id="ov-ddns-domain" class="v">—</code></div>
+            <div><span class="k">DDNS 同步</span><span id="ov-ddns-status" class="v">—</span></div>
+          </div>
+        </div>
+        <div class="ov-group">
+          <h3>守护进程</h3>
+          <div class="kv">
+            <div><span class="k">版本</span><span id="ov-daemon-version" class="v">—</span></div>
+            <div><span class="k">已运行</span><span id="ov-daemon-uptime" class="v">—</span></div>
+            <div><span class="k">启动于</span><span id="ov-daemon-started" class="v">—</span></div>
+          </div>
+          <div class="kv kv-dim">
+            <div><span class="k">构建</span><code id="ov-daemon-build" class="v" title="">—</code></div>
+            <div><span class="k">PID</span><span id="ov-daemon-pid" class="v">—</span></div>
+            <div><span class="k">配置 schema</span><span id="ov-config-version" class="v">—</span></div>
+          </div>
+        </div>
+        <div class="ov-group">
+          <h3>路由器</h3>
+          <div class="kv">
+            <div><span class="k">主机名</span><span id="ov-router-hostname" class="v">—</span></div>
+            <div><span class="k">系统</span><span id="ov-router-os" class="v">—</span></div>
+            <div><span class="k">内核 / 架构</span><span id="ov-router-kernel-arch" class="v">—</span></div>
+            <div><span class="k">系统已运行</span><span id="ov-router-uptime" class="v">—</span></div>
+            <div><span class="k">负载</span><span id="ov-router-load" class="v">—</span></div>
+            <div><span class="k">内存</span><span id="ov-router-mem" class="v">—</span></div>
+          </div>
+        </div>
+        <div class="ov-group">
+          <h3>服务 / 流量</h3>
+          <div class="kv">
+            <div><span class="k">端口映射</span><span id="ov-mappings" class="v">—</span></div>
+            <div><span class="k">SOCKS5</span><span id="ov-socks5" class="v">—</span></div>
+            <div><span class="k">活动连接</span><span id="ov-active" class="v">—</span></div>
+            <div><span class="k">累计接受</span><span id="ov-accepted" class="v">—</span></div>
+            <div><span class="k">入 / 出站</span><span id="ov-bytes" class="v">—</span></div>
+            <div><span class="k">通知</span><span id="ov-notify" class="v">—</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="mappings-section">
+      <div class="section-head">
+        <h2>端口映射</h2>
+        <button id="btn-add-mapping">+ 新增映射</button>
+      </div>
+      <div class="table-wrap">
+        <table id="mappings-table">
+          <thead>
+            <tr>
+              <th>启用</th><th>名称</th><th>协议</th><th>外部端口</th>
+              <th>内网目标</th><th>活跃 / 累计</th><th>入站 / 出站</th>
+              <th>更新时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="mappings-tbody"></tbody>
+        </table>
+      </div>
+      <p id="mappings-empty" class="empty hidden">还没有映射，点"+ 新增映射"添加第一条。</p>
+    </section>
+
+    <section id="socks5-section">
+      <div class="section-head">
+        <h2>SOCKS5 代理</h2>
+        <button id="btn-add-socks5">+ 新增 SOCKS5</button>
+      </div>
+      <div class="table-wrap">
+        <table id="socks5-table">
+          <thead>
+            <tr>
+              <th>启用</th><th>名称</th><th>外部端口</th><th>用户名</th>
+              <th>活跃 / 累计</th><th>入站 / 出站</th>
+              <th>更新时间</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="socks5-tbody"></tbody>
+        </table>
+      </div>
+      <p id="socks5-empty" class="empty hidden">还没有 SOCKS5 代理，点"+ 新增 SOCKS5"添加第一条。</p>
+    </section>
+
+    <section id="tasks-section">
+      <div class="section-head">
+        <h2>计划任务</h2>
+        <div class="head-actions">
+          <button id="btn-task-refresh" class="secondary">刷新</button>
+          <button id="btn-task-add">+ 新增任务</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="tasks-table">
+          <thead>
+            <tr><th>启用</th><th>名称</th><th>类型</th><th>调度规则 (Cron)</th><th>上次执行</th><th>操作</th></tr>
+          </thead>
+          <tbody id="tasks-tbody"></tbody>
+        </table>
+      </div>
+      <p id="tasks-empty" class="empty hidden">还没有计划任务，点"+ 新增任务"添加第一条（如定时重启 Mesh 子路由）。</p>
+    </section>
+
+    <section id="banlist-section" class="hidden">
+      <div class="section-head">
+        <h2>SOCKS5 封禁 / 失败 IP</h2>
+        <button id="btn-banlist-refresh" class="secondary">刷新</button>
+      </div>
+      <div class="table-wrap">
+        <table id="banlist-table">
+          <thead>
+            <tr><th>IP</th><th>失败次数</th><th>状态</th><th>解封时间</th><th>最近失败</th><th>操作</th></tr>
+          </thead>
+          <tbody id="banlist-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="notify-section">
+      <div class="section-head">
+        <h2>通知（飞书 / Lark）</h2>
+        <div class="head-actions">
+          <button id="btn-notify-test" class="secondary">发送测试</button>
+          <button id="btn-notify-edit">编辑</button>
+        </div>
+      </div>
+      <div id="notify-display" class="kv">
+        <div><span class="k">状态</span><span id="notify-status" class="v">—</span></div>
+        <div><span class="k">Webhook</span><code id="notify-url" class="v">—</code></div>
+        <div><span class="k">事件</span><span id="notify-events" class="v">—</span></div>
+      </div>
+    </section>
+
+    <section id="ddns-section">
+      <div class="section-head">
+        <h2>动态域名 (DDNS)</h2>
+        <div class="head-actions">
+          <button id="btn-ddns-sync" class="secondary">立即同步</button>
+          <button id="btn-ddns-edit">编辑</button>
+        </div>
+      </div>
+      <div id="ddns-display" class="kv">
+        <div><span class="k">状态</span><span id="ddns-status" class="v">—</span></div>
+        <div><span class="k">域名</span><code id="ddns-domain" class="v">—</code></div>
+        <div><span class="k">同步 IP</span><code id="ddns-ip" class="v">—</code></div>
+        <div><span class="k">最近同步</span><span id="ddns-last" class="v">—</span></div>
+        <div id="ddns-err-row" class="hidden"><span class="k">错误</span><span id="ddns-err" class="v err"></span></div>
+      </div>
+    </section>
+
+    <section id="logs-section">
+      <div class="section-head">
+        <h2>实时日志</h2>
+        <button id="btn-clear-log" class="secondary">清空</button>
+      </div>
+      <pre id="logs-pre"></pre>
+    </section>
+  </main>
+</div>
+
+<div id="modal-bg" class="hidden"></div>
+
+<div id="modal-login" class="modal hidden">
+  <h2>登录 wan6gate</h2>
+  <form id="form-login">
+    <label>用户名 <input name="username" value="admin" autocomplete="username"></label>
+    <label>密码 <input name="password" type="password" required autocomplete="current-password"></label>
+    <div class="actions"><button type="submit">登录</button></div>
+    <p id="login-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-setup" class="modal hidden">
+  <h2>初始化 wan6gate</h2>
+  <form id="form-setup">
+    <p class="hint">这是首次启动，请设置管理员密码。</p>
+    <label>用户名 <input name="username" value="admin" autocomplete="username"></label>
+    <label>密码（≥ 4 字符） <input name="password" type="password" required minlength="4" autocomplete="new-password"></label>
+    <div class="actions"><button type="submit">设置并登录</button></div>
+    <p id="setup-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-mapping" class="modal hidden">
+  <h2 id="modal-mapping-title">新增端口映射</h2>
+  <form id="form-mapping">
+    <input type="hidden" name="id">
+    <label>名称（备注） <input name="label" placeholder="如 群晖 DSM" maxlength="64"></label>
+    <div class="row">
+      <label>协议
+        <select name="protocol">
+          <option value="tcp">TCP</option>
+          <option value="udp">UDP</option>
+        </select>
+      </label>
+      <label>外部端口
+        <input name="listen_port" type="number" min="1" max="65535" required placeholder="例如 30000">
+      </label>
+    </div>
+    <label>LAN 目标 IP <input name="target_ip" placeholder="例如 192.168.31.100" required></label>
+    <label>LAN 目标端口 <input name="target_port" type="number" min="1" max="65535" required placeholder="5000"></label>
+    <label class="cb"><input type="checkbox" name="enabled" checked> 启用此映射</label>
+    <div class="actions">
+      <button type="submit">保存</button>
+      <button type="button" id="btn-mapping-cancel" class="secondary">取消</button>
+    </div>
+    <p id="mapping-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-export" class="modal hidden">
+  <h2 id="modal-export-title">导出客户端配置</h2>
+  <div class="tabs">
+    <button class="tab active" data-fmt="uri">URI</button>
+    <button class="tab" data-fmt="singbox">sing-box</button>
+    <button class="tab" data-fmt="clash">Clash</button>
+    <button class="tab" data-fmt="surge">Surge</button>
+  </div>
+  <pre id="export-pre" class="config-pre">加载中…</pre>
+  <div class="actions">
+    <button id="btn-export-copy" class="secondary">复制</button>
+    <button id="btn-export-download" class="secondary">下载</button>
+    <button id="btn-export-close">关闭</button>
+  </div>
+</div>
+
+<div id="modal-history" class="modal hidden">
+  <h2 id="modal-history-title">流量历史</h2>
+  <div class="tabs" id="history-range-tabs">
+    <button class="tab active" data-hours="24">24 小时</button>
+    <button class="tab" data-hours="168">7 天</button>
+    <button class="tab" data-hours="720">30 天</button>
+  </div>
+  <div id="history-chart-wrap"><svg id="history-chart" viewBox="0 0 720 240"></svg></div>
+  <p id="history-empty" class="empty hidden">尚无足够数据。系统每小时整点采样一次；请等待至少一个小时。</p>
+  <div class="actions"><button id="btn-history-close">关闭</button></div>
+</div>
+
+<div id="modal-socks5" class="modal hidden">
+  <h2 id="modal-socks5-title">新增 SOCKS5 代理</h2>
+  <form id="form-socks5">
+    <input type="hidden" name="id">
+    <label>名称（备注） <input name="label" placeholder="如 出门代理" maxlength="64"></label>
+    <label>外部端口
+      <input name="listen_port" type="number" min="1" max="65535" required placeholder="例如 51080">
+    </label>
+    <label>用户名 <input name="username" autocomplete="off" required placeholder="自定义用户名"></label>
+    <label>密码 <input name="password" type="text" autocomplete="off" placeholder="（编辑时留空保留旧值）"></label>
+    <p class="hint">RFC 1929 用户名/密码认证；公网暴露请用强密码（≥ 12 位）。仅局域网 UI,密码以明文显示。</p>
+    <label class="cb"><input type="checkbox" name="enabled" checked> 启用</label>
+    <div class="actions">
+      <button type="submit">保存</button>
+      <button type="button" id="btn-socks5-cancel" class="secondary">取消</button>
+    </div>
+    <p id="socks5-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-notify" class="modal hidden">
+  <h2>通知设置（飞书 / Lark）</h2>
+  <form id="form-notify">
+    <label class="cb"><input type="checkbox" name="enabled"> 启用通知</label>
+    <label>Webhook URL
+      <input name="webhook_url" autocomplete="off" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+    </label>
+    <p class="hint">提示：留空保留旧值；只支持 open.feishu.cn 或 open.larksuite.com 域名。</p>
+    <h3>发送场景</h3>
+    <label class="cb"><input type="checkbox" name="notify_on_daemon_start"> Daemon 启动 / 重启 / 升级</label>
+    <label class="cb"><input type="checkbox" name="notify_on_ddns_change"> DDNS IP 变化（已成功推送阿里云）</label>
+    <label class="cb"><input type="checkbox" name="notify_on_ddns_error"> DDNS 同步失败（去重 15 分钟）</label>
+    <label class="cb"><input type="checkbox" name="notify_on_socks5_ban"> SOCKS5 暴力破解封禁（聚合 15 分钟）</label>
+    <div class="actions">
+      <button type="button" id="btn-notify-send-test" class="secondary">仅测试不保存</button>
+      <button type="submit">保存</button>
+      <button type="button" id="btn-notify-cancel" class="secondary">取消</button>
+    </div>
+    <p id="notify-form-msg" class="hint"></p>
+    <p id="notify-form-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-ddns" class="modal hidden">
+  <h2>DDNS 设置（阿里云）</h2>
+  <form id="form-ddns">
+    <label class="cb"><input type="checkbox" name="enabled"> 启用 DDNS</label>
+    <label>域名（FQDN，例 home.example.com） <input name="domain" placeholder="home.example.com" required></label>
+    <div class="row">
+      <label>TTL（秒） <input name="ttl" type="number" min="60" placeholder="600"></label>
+      <label>同步间隔（秒，最小 60） <input name="interval_seconds" type="number" min="60" placeholder="300"></label>
+    </div>
+    <label>AccessKey ID <input name="access_key_id" autocomplete="off"></label>
+    <label>AccessKey Secret <input name="access_key_secret" type="text" autocomplete="off" placeholder="（留空保留旧值）"></label>
+    <div class="actions">
+      <button type="button" id="btn-ddns-test" class="secondary">仅测试凭据</button>
+      <button type="submit">保存</button>
+      <button type="button" id="btn-ddns-cancel" class="secondary">取消</button>
+    </div>
+    <p id="ddns-form-msg" class="hint"></p>
+    <p id="ddns-form-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-settings" class="modal hidden">
+  <h2>设置</h2>
+  <form id="form-password">
+    <h3>修改密码</h3>
+    <label>当前密码 <input name="old_password" type="password" required autocomplete="current-password"></label>
+    <label>新密码 <input name="new_password" type="password" required minlength="4" autocomplete="new-password"></label>
+    <div class="actions">
+      <button type="submit">修改</button>
+      <button type="button" id="btn-settings-close" class="secondary">关闭</button>
+    </div>
+    <p id="password-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-task" class="modal hidden">
+  <h2 id="modal-task-title">新增计划任务</h2>
+  <form id="form-task">
+    <input type="hidden" name="id">
+    <label>任务名称 <input name="name" placeholder="如 重启 Mesh 子路由" required maxlength="64"></label>
+    <div class="row">
+      <label>任务类型
+        <select name="type" id="task-type-select">
+          <option value="shell">Shell 命令</option>
+          <option value="http">HTTP 请求</option>
+        </select>
+      </label>
+      <label>超时时间（秒）
+        <input name="timeout_seconds" type="number" min="1" max="3600" value="60" required>
+      </label>
+    </div>
+
+    <!-- Shell Fields -->
+    <div id="task-shell-fields">
+      <label>Shell 命令 / 脚本
+        <textarea name="shell_command" rows="3" placeholder="例如: reboot 或 /data/router-ops/scripts/reboot_sub_router.sh"></textarea>
+      </label>
+    </div>
+
+    <!-- HTTP Fields -->
+    <div id="task-http-fields" class="hidden">
+      <div class="row">
+        <label>请求方法
+          <select name="http_method">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+        </label>
+        <label style="flex: 2">目标 URL
+          <input name="http_url" placeholder="http://192.168.31.2/api/...">
+        </label>
+      </div>
+      <label>请求 Headers（可选，每行 Key: Value）
+        <textarea name="http_headers" rows="2" placeholder="Content-Type: application/json&#10;Authorization: Bearer xxx"></textarea>
+      </label>
+      <label>请求 Body（可选）
+        <textarea name="http_body" rows="2" placeholder='{"action":"reboot"}'></textarea>
+      </label>
+    </div>
+
+    <!-- Cron -->
+    <label>Cron 调度表达式 (分 时 日 月 周)
+      <input name="cron" id="task-cron-input" placeholder="0 4 * * 1" required>
+    </label>
+    <div class="cron-shortcuts">
+      <button type="button" class="btn-cron-preset" data-cron="0 4 * * 1">每周一 04:00</button>
+      <button type="button" class="btn-cron-preset" data-cron="0 4 * * *">每天 04:00</button>
+      <button type="button" class="btn-cron-preset" data-cron="0 * * * *">每小时整点</button>
+      <button type="button" class="btn-cron-preset" data-cron="*/15 * * * *">每 15 分钟</button>
+    </div>
+
+    <label>飞书通知策略
+      <select name="notify_policy">
+        <option value="on_failure">仅在失败时通知（推荐）</option>
+        <option value="always">每次执行均通知</option>
+        <option value="never">不通知</option>
+      </select>
+    </label>
+
+    <label class="cb"><input type="checkbox" name="enabled" checked> 启用此计划任务</label>
+
+    <div class="actions">
+      <button type="submit">保存</button>
+      <button type="button" id="btn-task-cancel" class="secondary">取消</button>
+    </div>
+    <p id="task-err" class="err"></p>
+  </form>
+</div>
+
+<div id="modal-task-history" class="modal hidden">
+  <h2 id="modal-task-history-title">任务执行历史与日志</h2>
+  <div id="task-history-list" class="task-history-list table-wrap">
+    <table id="task-history-table">
+      <thead>
+        <tr><th>时间</th><th>方式</th><th>状态</th><th>耗时</th><th>结果码</th><th>输出</th></tr>
+      </thead>
+      <tbody id="task-history-tbody"></tbody>
+    </table>
+  </div>
+  <p id="task-history-empty" class="empty hidden">暂无执行历史记录。</p>
+  <div id="task-history-log-wrap" class="hidden">
+    <h3>输出内容</h3>
+    <pre id="task-history-log" class="task-log-terminal"></pre>
+  </div>
+  <div class="actions">
+    <button type="button" id="btn-task-history-copy" class="secondary hidden">复制日志</button>
+    <button type="button" id="btn-task-history-close">关闭</button>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
